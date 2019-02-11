@@ -1,0 +1,27 @@
+name: 'HotpotQA'
+description: 'Train 1d-CNN for accel/clef'
+priority: 3
+is_parent: True
+setup_command: 'conda deactivate; conda activate PY3; bash setup.sh &>/dev/null'
+command: 'conda deactivate; conda activate PY3; python main.py --mode prepro --data_file hotpot_train_v1.1.json --para_limit 2250 --data_split train ; python main.py --mode prepro --data_file hotpot_dev_distractor_v1.json --para_limit 2250 --data_split dev;'
+
+environment_variables:
+  USE_BOLT_EXPERIMENTAL_CONDA: "1"
+
+resources:
+  cluster: simcloud-mr2.apple.com
+  image: 'current-ubuntu16.04-cuda9.0'
+  num_cpus: 2
+  num_gpus: 1
+  memory_gb: 256
+  disk_gb: 200
+  timeout: 24h
+  
+gpu_options:
+  cuda_version: '9.0'
+  cudnn_version: '7.1'
+  export_env_vars: true
+
+permissions:
+  owners: 'jdhanani'
+

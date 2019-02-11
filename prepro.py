@@ -14,6 +14,8 @@ from joblib import Parallel, delayed
 
 import torch
 
+import turibolt as bolt
+
 nlp = spacy.blank("en")
 
 import bisect
@@ -309,6 +311,10 @@ def build_features(config, examples, data_type, out_file, word2idx_dict, char2id
     torch.save(datapoints, out_file)
 
 def save(filename, obj, message=None):
+    # save to bolt directory if it exists
+    if bolt.get_current_task_id():
+        filename = os.path.join(bolt.ARTIFACT_DIR, filename)
+
     if message is not None:
         print("Saving {}...".format(message))
     with open(filename, "w") as fh:

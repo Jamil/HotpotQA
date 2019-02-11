@@ -14,8 +14,9 @@ import time
 import shutil
 import random
 import torch
-from torch.autograd import Variable
 import sys
+import subprocess
+from torch.autograd import Variable
 from torch.nn import functional as F
 
 def create_exp_dir(path, scripts_to_save=None):
@@ -35,6 +36,12 @@ nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config):
+    if bolt.get_current_task_id():
+        # copy artifacts from prepro
+        bolt.copy_artifacts('4uhci6793z', '.')
+        print('Copied artifacts from task')
+        print(os.listdir('.'))
+        
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
@@ -155,6 +162,12 @@ def train(config):
                         cur_patience = 0
         if stop_train: break
     logging('best_dev_F1 {}'.format(best_dev_F1))
+
+    # tar up the experiments directory
+    if bolt.get_current_task_id():
+        command = 'tar czvf {} {}'.format(os.path.join(bolt.ARTIFACT_DIR, 'out.tar.gz'), config.save)
+        subprocess.check_call(command.split())
+    
 
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
     answer_dict = {}
