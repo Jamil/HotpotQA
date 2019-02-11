@@ -1,5 +1,5 @@
-name: 'HotpotQA'
-description: 'Train 1d-CNN for accel/clef'
+name: 'HotpotQA Preprocessing'
+description: ''
 priority: 3
 is_parent: True
 setup_command: 'conda deactivate; conda activate PY3; bash setup.sh &>/dev/null'
