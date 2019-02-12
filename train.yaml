@@ -23,5 +23,5 @@ gpu_options:
   export_env_vars: true
 
 permissions:
-  owners: 'jdhanani'
+  owners: 'hotpotqa'
 

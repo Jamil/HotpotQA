@@ -19,6 +19,8 @@ import subprocess
 from torch.autograd import Variable
 from torch.nn import functional as F
 
+import turibolt as bolt
+
 def create_exp_dir(path, scripts_to_save=None):
     if not os.path.exists(path):
         os.mkdir(path)
@@ -38,7 +40,7 @@ nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 def train(config):
     if bolt.get_current_task_id():
         # copy artifacts from prepro
-        bolt.copy_artifacts('4uhci6793z', '.')
+        bolt.copy_artifacts('3y8rwtrfb', '.')
         print('Copied artifacts from task')
         print(os.listdir('.'))
         

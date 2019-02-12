@@ -2,18 +2,19 @@ import os
 from prepro import prepro
 from run import train, test
 import argparse
+import turibolt as bolt
 
 parser = argparse.ArgumentParser()
 
 glove_word_file = "glove.840B.300d.txt"
 
-word_emb_file = "word_emb.json"
-char_emb_file = "char_emb.json"
-train_eval = "train_eval.json"
-dev_eval = "dev_eval.json"
-test_eval = "test_eval.json"
-word2idx_file = "word2idx.json"
-char2idx_file = "char2idx.json"
+word_emb_file = 'word_emb.json'
+char_emb_file = 'char_emb.json'
+train_eval = 'train_eval.json'
+dev_eval = 'dev_eval.json'
+test_eval = 'test_eval.json'
+word2idx_file = 'word2idx.json'
+char2idx_file = 'char2idx.json'
 idx2word_file = 'idx2word.json'
 idx2char_file = 'idx2char.json'
 train_record_file = 'train_record.pkl'
@@ -83,6 +84,19 @@ config.test_eval_file = _concat(config.test_eval_file)
 if config.mode == 'train':
     train(config)
 elif config.mode == 'prepro':
+    # everything in artifact dir
+    config.word_emb_file = os.path.join(bolt.ARTIFACT_DIR, 'word_emb.json')
+    config.char_emb_file = os.path.join(bolt.ARTIFACT_DIR, 'char_emb.json')
+    config.train_eval = os.path.join(bolt.ARTIFACT_DIR, 'train_eval.json')
+    config.dev_eval = os.path.join(bolt.ARTIFACT_DIR, 'dev_eval.json')
+    config.test_eval = os.path.join(bolt.ARTIFACT_DIR, 'test_eval.json')
+    config.word2idx_file = os.path.join(bolt.ARTIFACT_DIR, 'word2idx.json')
+    config.char2idx_file = os.path.join(bolt.ARTIFACT_DIR, 'char2idx.json')
+    config.idx2word_file = os.path.join(bolt.ARTIFACT_DIR, 'idx2word.json')
+    config.idx2char_file = os.path.join(bolt.ARTIFACT_DIR, 'idx2char.json')
+    config.train_record_file = os.path.join(bolt.ARTIFACT_DIR, 'train_record.pkl')
+    config.dev_record_file = os.path.join(bolt.ARTIFACT_DIR, 'dev_record.pkl')
+    config.test_record_file = os.path.join(bolt.ARTIFACT_DIR, 'test_record.pkl')
     prepro(config)
 elif config.mode == 'test':
     test(config)
