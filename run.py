@@ -20,6 +20,7 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 
 import turibolt as bolt
+import matplotlib.pyplot as plt
 
 def create_exp_dir(path, scripts_to_save=None):
     if not os.path.exists(path):
@@ -40,7 +41,7 @@ nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 def train(config):
     if bolt.get_current_task_id():
         # copy artifacts from prepro
-        bolt.copy_artifacts('3y8rwtrfb', '.')
+        bolt.copy_artifacts('3y8rwtrfbi', '.')
         print('Copied artifacts from task')
         print(os.listdir('.'))
         
@@ -56,7 +57,9 @@ def train(config):
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)
+
+    if bolt.get_current_task_id():
+        torch.cuda.manual_seed_all(config.seed)
 
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
@@ -87,8 +90,9 @@ def train(config):
         model = Model(config, word_mat, char_mat)
 
     logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
-    ori_model = model.cuda()
-    model = nn.DataParallel(ori_model)
+    if bolt.get_current_task_id():
+        ori_model = model.cuda()
+        model = nn.DataParallel(ori_model)
 
     lr = config.init_lr
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
@@ -131,6 +135,9 @@ def train(config):
             if global_step % config.period == 0:
                 cur_loss = total_loss / config.period
                 elapsed = time.time() - start_time
+                bolt.send_metrics({
+                    'train_loss': float(cur_loss)
+                })
                 logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss))
                 total_loss = 0
                 start_time = time.time()
@@ -139,6 +146,11 @@ def train(config):
                 model.eval()
                 metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
                 model.train()
+                bolt.send_metrics({
+                    'dev_loss': float(metrics['loss']),
+                    'dev_em': float(metrics['exact_match']),
+                    'dev_f1': float(metrics['f1'])
+                })
 
                 logging('-' * 89)
                 logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
@@ -155,7 +167,7 @@ def train(config):
                 else:
                     cur_patience += 1
                     if cur_patience >= config.patience:
-                        lr /= 2.0
+                        lr /= config.lr_decay
                         for param_group in optimizer.param_groups:
                             param_group['lr'] = lr
                         if lr < config.init_lr * 1e-2:
@@ -219,7 +231,18 @@ def predict(data_source, model, eval_file, config, prediction_file):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
+        # ADD THIS:
+        outputs= []
+        def hook(module, input, output):
+            outputs.append(output)
+        
+        model.self_att.register_forward_hook(hook)
+
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+
+        # THIS GETS THE OUTPUT OF THAT LAYER:
+        print(outputs[0])
+
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 
@@ -234,7 +257,8 @@ def predict(data_source, model, eval_file, config, prediction_file):
             sp_dict.update({cur_id: cur_sp_pred})
 
     prediction = {'answer': answer_dict, 'sp': sp_dict}
-    with open(prediction_file, 'w') as f:
+    with open(os.path.join(bolt.ARTIFACT_DIR, prediction_file), 'w') as f:
+        print('Saved prediction')
         json.dump(prediction, f)
 
 def test(config):
@@ -280,10 +304,21 @@ def test(config):
         model = SPModel(config, word_mat, char_mat)
     else:
         model = Model(config, word_mat, char_mat)
-    ori_model = model.cuda()
-    ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
-    model = nn.DataParallel(ori_model)
+
+    if bolt.get_current_task_id():
+        ori_model = model.cuda()
+        ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
+    else:
+        ori_model = model
+        ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt'),
+                                             map_location='cpu'))
+
+    model = ori_model
+#   model = nn.DataParallel(ori_model)
+#   print(model)
 
     model.eval()
     predict(build_dev_iterator(), model, dev_eval_file, config, config.prediction_file)
+#   return ori_model
 
+    
