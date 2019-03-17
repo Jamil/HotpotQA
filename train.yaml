@@ -1,9 +1,16 @@
-name: 'HotpotQA Training'
+name: 'HotpotQA Training - 1.2x lr decay, keep_prob=0.9'
 description: ''
 priority: 3
 is_parent: True
 setup_command: 'conda deactivate; conda activate PY3; bash setup.sh &>/dev/null'
-command: 'conda deactivate; conda activate PY3; python main.py --mode train --para_limit 2250 --batch_size 24 --init_lr 0.1 --keep_prob 1.0 --sp_lambda 1.0'
+command: 'conda deactivate; conda activate PY3; python main.py --mode train --para_limit 2250 --batch_size 24'
+
+parameters:
+  prepro_task: '3y8rwtrfbi'
+  init_lr: 0.1
+  lr_decay: 1.2
+  sp_lambda: 1.0
+  keep_prob: 0.9
 
 environment_variables:
   USE_BOLT_EXPERIMENTAL_CONDA: "1"
@@ -12,8 +19,8 @@ resources:
   cluster: simcloud-mr2.apple.com
   image: 'current-ubuntu16.04-cuda9.0'
   num_cpus: 2
-  num_gpus: 1
-  memory_gb: 256
+  num_gpus: 2
+  memory_gb: 128
   disk_gb: 200
   timeout: 24h
   
@@ -25,3 +32,63 @@ gpu_options:
 permissions:
   owners: 'hotpotqa'
 
+tune:
+  name: 'HotpotQA Tune - Learning Rate init & decay'
+  description: 'Grid search'
+
+  search_strategy:
+    type: RANDOM_SEARCH
+
+  objective_label: 'dev_f1'
+  objective_goal: MAXIMIZE
+
+  num_trials: 60
+  max_concurrent_trials: 10
+  trials_per_parameter_set: 1
+
+  hyperparameters:
+    init_lr:
+      type: CONTINUOUS
+      range: [0.01, 0.15]
+
+    lr_decay:
+      type: CONTINUOUS
+      range: [1.4, 2.0]
+
+# tune:
+#   name: 'HotpotQA Tune - Dropout'
+#   description: 'Grid search'
+# 
+#   search_strategy:
+#     type: GRID_SEARCH
+# 
+#   objective_label: 'dev_f1'
+#   objective_goal: MAXIMIZE
+# 
+#   num_trials: 9
+#   max_concurrent_trials: 10
+#   trials_per_parameter_set: 1
+# 
+#   hyperparameters:
+#     keep_prob:
+#       type: CONTINUOUS
+#       range: [0.5, 1.0]
+
+# tune:
+#   name: 'HotpotQA Tune - sp_lambda'
+#   description: 'Grid search'
+# 
+#   search_strategy:
+#     type: GRID_SEARCH
+# 
+#   objective_label: 'dev_f1'
+#   objective_goal: MAXIMIZE
+# 
+#   num_trials: 15
+#   max_concurrent_trials: 10
+#   trials_per_parameter_set: 1
+# 
+#   hyperparameters:
+#     sp_lambda:
+#       type: CONTINUOUS
+#       range: [0.1, 2.0]
