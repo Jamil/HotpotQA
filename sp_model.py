@@ -11,6 +11,7 @@ from torch.nn.utils import rnn
 class SPModel(nn.Module):
     def __init__(self, config, word_mat, char_mat):
         super().__init__()
+        nlayers = 1
         self.config = config
         self.word_dim = config.glove_dim
         self.word_emb = nn.Embedding(len(word_mat), len(word_mat[0]), padding_idx=0)
@@ -23,7 +24,23 @@ class SPModel(nn.Module):
         self.char_hidden = config.char_hidden
         self.hidden = config.hidden
 
+        # returns (batch, seq_len, 2 * config.hidden)
         self.rnn = EncoderRNN(config.char_hidden+self.word_dim, config.hidden, 1, True, True, 1-config.keep_prob, False)
+
+        # returns (batch, seq_len, config.hidden * 8)
+        self.q_self_att = BiAttention(config.hidden*2, 1-config.keep_prob)
+        self.q_self_att_linear = nn.Sequential(
+            nn.Linear((config.hidden) * 8,
+                      config.hidden * 2),
+            nn.ReLU()
+        )
+
+        self.c_self_att = BiAttention(config.hidden*2, 1-config.keep_prob)
+        self.c_self_att_linear = nn.Sequential(
+            nn.Linear((config.hidden) * 8,
+                      config.hidden * 2),
+            nn.ReLU()
+        )
 
         self.qc_att = BiAttention(config.hidden*2, 1-config.keep_prob)
         self.linear_1 = nn.Sequential(
@@ -31,10 +48,10 @@ class SPModel(nn.Module):
                 nn.ReLU()
             )
 
-        self.rnn_2 = EncoderRNN(config.hidden, config.hidden, 1, False, True, 1-config.keep_prob, False)
-        self.self_att = BiAttention(config.hidden*2, 1-config.keep_prob)
+        self.rnn_2 = EncoderRNN(config.hidden, config.hidden, nlayers, False, True, 1-config.keep_prob, False)
+        self.self_att = BiAttention(config.hidden*2*nlayers, 1-config.keep_prob)
         self.linear_2 = nn.Sequential(
-                nn.Linear(config.hidden*8, config.hidden),
+                nn.Linear(config.hidden*8*nlayers, config.hidden),
                 nn.ReLU()
             )
 
@@ -81,6 +98,18 @@ class SPModel(nn.Module):
 
         context_output = self.rnn(context_output, context_lens)
         ques_output = self.rnn(ques_output)
+
+        # JAMIL ADDED: self-attention on question post-RNN
+        ques_output = self.q_self_att(ques_output,
+                                      ques_output,
+                                      ques_mask)
+        ques_output = self.q_self_att_linear(ques_output)
+
+        # JAMIL ADDED: self-attention on context post-RNN 
+        context_output = self.c_self_att(context_output,
+                                         context_output,
+                                         context_mask)
+        context_output = self.c_self_att_linear(context_output)
 
         output = self.qc_att(context_output, ques_output, ques_mask)
         output = self.linear_1(output)
@@ -205,12 +234,20 @@ class BiAttention(nn.Module):
     def forward(self, input, memory, mask):
         bsz, input_len, memory_len = input.size(0), input.size(1), memory.size(1)
 
+        # dropout inputs
         input = self.dropout(input)
         memory = self.dropout(memory)
 
+        # d_i = W_i * x_i 
         input_dot = self.input_linear(input)
+
+        # d_w = W_m * x_m
         memory_dot = self.memory_linear(memory).view(bsz, 1, memory_len)
+
+        # c_i = (d_i * s) * x_m
         cross_dot = torch.bmm(input * self.dot_scale, memory.permute(0, 2, 1).contiguous())
+
+        # att = d_i + d_w + c_i
         att = input_dot + memory_dot + cross_dot
         att = att - 1e30 * (1 - mask[:,None])
 
@@ -230,3 +267,81 @@ class GateLayer(nn.Module):
 
     def forward(self, input):
         return self.linear(input) * self.sigmoid(self.gate(input))
+
+
+class ScaledDotProductAttention(nn.Module):
+    ''' Scaled Dot-Product Attention '''
+
+    def __init__(self, temperature, attn_dropout=0.1):
+        super().__init__()
+        self.temperature = temperature
+        self.dropout = nn.Dropout(attn_dropout)
+        self.softmax = nn.Softmax(dim=2)
+
+    def forward(self, q, k, v, mask=None):
+        attn = torch.bmm(q, k.transpose(1, 2))
+        attn = attn / self.temperature
+
+        attn = attn - 1e30 * (1 - mask[:,None])
+
+        attn = self.softmax(attn)
+        attn = self.dropout(attn)
+        output = torch.bmm(attn, v)
+
+        return output, attn
+
+class MultiHeadAttention(nn.Module):
+    # n_head
+    # d_model: input dim
+    def __init__(self, d_model, n_head=8, d_k=64, d_v=64, dropout=0.1):
+        super().__init__()
+
+        self.n_head = n_head
+        self.d_k = d_k
+        self.d_v = d_v
+
+        self.w_qs = nn.Linear(d_model, n_head * d_k)
+        self.w_ks = nn.Linear(d_model, n_head * d_k)
+        self.w_vs = nn.Linear(d_model, n_head * d_v)
+        nn.init.normal_(self.w_qs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_ks.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        nn.init.normal_(self.w_vs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_v)))
+
+        self.attention = ScaledDotProductAttention(temperature=np.power(d_k, 0.5))
+        self.layer_norm = nn.LayerNorm(d_model)
+
+        self.fc = nn.Linear(n_head * d_v, d_model)
+        nn.init.xavier_normal_(self.fc.weight)
+
+        self.dropout = nn.Dropout(dropout)
+
+
+    def forward(self, q, k, v, mask=None):
+
+        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
+
+        sz_b, len_q, _ = q.size()
+        sz_b, len_k, _ = k.size()
+        sz_b, len_v, _ = v.size()
+
+        residual = q
+
+        q = self.w_qs(q).view(sz_b, len_q, n_head, d_k)
+        k = self.w_ks(k).view(sz_b, len_k, n_head, d_k)
+        v = self.w_vs(v).view(sz_b, len_v, n_head, d_v)
+
+        q = q.permute(2, 0, 1, 3).contiguous().view(-1, len_q, d_k) # (n*b) x lq x dk
+        k = k.permute(2, 0, 1, 3).contiguous().view(-1, len_k, d_k) # (n*b) x lk x dk
+        v = v.permute(2, 0, 1, 3).contiguous().view(-1, len_v, d_v) # (n*b) x lv x dv
+
+        if mask:
+            mask = mask.repeat(n_head, 1, 1) # (n*b) x .. x ..
+        output, attn = self.attention(q, k, v, mask=mask)
+
+        output = output.view(n_head, sz_b, len_q, d_v)
+        output = output.permute(1, 2, 0, 3).contiguous().view(sz_b, len_q, -1) # b x lq x (n*dv)
+
+        output = self.dropout(self.fc(output))
+        output = self.layer_norm(output + residual)
+
+        return output, attn
