@@ -10,7 +10,7 @@ Step 2: Convert those values to `numpy()` Commit here -
 
 Step 3: Convert context_ids to `numpy()` - 
 
-Step 4: Visualize - 
+Step 4: Visualize - https://github.com/Jamil/HotpotQA/blob/78b86843cb347856609875dd0ad83c5286421e74/visualize_attention.ipynb
 
 
 
