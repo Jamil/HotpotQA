@@ -27,11 +27,6 @@ class SPModel(nn.Module):
 
         self.qc_att = BiAttention(config.hidden*2, 1-config.keep_prob)
         self.qc_att_another = BiAttention(config.hidden*2, 1-config.keep_prob)
-        self.linear_att = nn.Sequential(
-                nn.Linear(config.hidden*8, config.hidden*2),
-                nn.ReLU()
-        )
-        self.qc_att_another2 = BiAttention(config.hidden*2, 1-config.keep_prob)
         self.linear_1 = nn.Sequential(
                 nn.Linear(config.hidden*10, config.hidden*2),
                 nn.ReLU()
@@ -90,10 +85,6 @@ class SPModel(nn.Module):
         ques_output = self.rnn(ques_output)
 
         output = self.qc_att(context_output, ques_output, ques_mask)
-        # output = self.linear_1(output)
-        # output = self.qc_att_another(output, ques_output, ques_mask)
-        # output = self.linear_att(output)
-        # output = self.qc_att_another2(output, ques_output, ques_mask)
         output_t = self.rnn_2(output, context_lens)
         output_t = self.self_att(output_t, output_t, context_mask)
         # output_t = self.linear_2(output_t)
@@ -113,10 +104,8 @@ class SPModel(nn.Module):
         sp_output = torch.matmul(all_mapping, sp_output)
         output_start = torch.cat([output, sp_output], dim=-1)
         
-        # print ("show output start", output_start.size())
         output_start = self.linear_1(output_start)
         output_start = self.qc_att_another(output_start, ques_output, ques_mask)
-        # output_start = self.linear_att(output_start)
 
         output_start = self.rnn_start(output_start, context_lens)
         logit1 = self.linear_start(output_start).squeeze(2) - 1e30 * (1 - context_mask)
